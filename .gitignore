@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+results/
+logs/
+script/cufile.log
+*.log
+*.tmp
+*.swp
+
+summaries/.DS_Store
