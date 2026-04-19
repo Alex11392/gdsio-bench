@@ -59,8 +59,23 @@ NVFS_VERSION_PATH="${NVFS_VERSION_PATH:-/proc/driver/nvidia-fs/version}"
 GDS_STATS_BIN="${GDS_STATS_BIN:-/usr/local/cuda/gds/tools/gds_stats}"
 GDSCHECK_BIN="${GDSCHECK_BIN:-/usr/local/cuda/gds/tools/gdscheck}"
 
-X_FLAGS_STR="${X_FLAGS_STR:-0 2}"
-read -r -a X_FLAGS <<< "${X_FLAGS_STR}"
+parse_words_var() {
+  local var_name="$1"
+  local default_words="$2"
+  local -n out_ref="$3"
+  if [[ ${!var_name+x} ]]; then
+    if [[ -z "${!var_name}" ]]; then
+      out_ref=()
+    else
+      read -r -a out_ref <<< "${!var_name}"
+    fi
+  else
+    read -r -a out_ref <<< "${default_words}"
+  fi
+}
+
+X_FLAGS_STR="${X_FLAGS_STR-0 2}"
+parse_words_var "X_FLAGS_STR" "0 2" X_FLAGS
 
 REPEATS="${REPEATS:-3}"
 PREPARE_DATASETS="${PREPARE_DATASETS:-1}"
@@ -85,26 +100,26 @@ GDS_STATS_INTERVAL="${GDS_STATS_INTERVAL:-1}"
 VERIFY_XFER_LABEL="${VERIFY_XFER_LABEL:-1}"
 
 SEQ_IO_SWEEP_THREADS="${SEQ_IO_SWEEP_THREADS:-8}"
-SEQ_IO_SIZES_STR="${SEQ_IO_SIZES_STR:-128K 256K 512K 1M 2M 4M}"
-read -r -a SEQ_IO_SIZES <<< "${SEQ_IO_SIZES_STR}"
+SEQ_IO_SIZES_STR="${SEQ_IO_SIZES_STR-128K 256K 512K 1M 2M 4M}"
+parse_words_var "SEQ_IO_SIZES_STR" "128K 256K 512K 1M 2M 4M" SEQ_IO_SIZES
 SEQ_THREAD_SWEEP_IO_SIZE="${SEQ_THREAD_SWEEP_IO_SIZE:-1M}"
-SEQ_THREADS_STR="${SEQ_THREADS_STR:-1 2 4 8 16 32}"
-read -r -a SEQ_THREADS <<< "${SEQ_THREADS_STR}"
+SEQ_THREADS_STR="${SEQ_THREADS_STR-1 2 4 8 16 32}"
+parse_words_var "SEQ_THREADS_STR" "1 2 4 8 16 32" SEQ_THREADS
 SEQ_DATASET_SIZE="${SEQ_DATASET_SIZE:-1G}"
 
 RAND_IO_SWEEP_THREADS="${RAND_IO_SWEEP_THREADS:-32}"
-RAND_IO_SIZES_STR="${RAND_IO_SIZES_STR:-4K 8K 16K 32K 64K 128K}"
-read -r -a RAND_IO_SIZES <<< "${RAND_IO_SIZES_STR}"
+RAND_IO_SIZES_STR="${RAND_IO_SIZES_STR-4K 8K 16K 32K 64K 128K}"
+parse_words_var "RAND_IO_SIZES_STR" "4K 8K 16K 32K 64K 128K" RAND_IO_SIZES
 RAND_THREAD_SWEEP_IO_SIZE="${RAND_THREAD_SWEEP_IO_SIZE:-4K}"
-RAND_THREADS_STR="${RAND_THREADS_STR:-1 2 4 8 16 32}"
-read -r -a RAND_THREADS <<< "${RAND_THREADS_STR}"
+RAND_THREADS_STR="${RAND_THREADS_STR-1 2 4 8 16 32}"
+parse_words_var "RAND_THREADS_STR" "1 2 4 8 16 32" RAND_THREADS
 RAND_DATASET_SIZE="${RAND_DATASET_SIZE:-1G}"
 RAND_SEED="${RAND_SEED:-12345}"
 RAND_USE_UNALIGNED="${RAND_USE_UNALIGNED:-0}"
 RAND_FILL_BUFFER="${RAND_FILL_BUFFER:-0}"
 
-MODES_STR="${MODES_STR:-read write}"
-read -r -a MODES <<< "${MODES_STR}"
+MODES_STR="${MODES_STR-read write}"
+parse_words_var "MODES_STR" "read write" MODES
 
 declare -a RUN_DATASETS=()
 declare -A PREPARED_DATASETS=()
@@ -209,12 +224,24 @@ register_dataset() {
 
 dataset_key() {
   local logical_group="$1"
-  local threads="$2"
-  local dataset_size="$3"
-  printf '%s__th%s__size%s' \
+  local mode="$2"
+  local x_flag="$3"
+  local threads="$4"
+  local dataset_size="$5"
+  local repeat_id="$6"
+  local key
+
+  key="$(printf '%s__rep%s__th%s__size%s' \
     "$(sanitize_name "${logical_group}")" \
+    "${repeat_id}" \
     "${threads}" \
-    "$(sanitize_name "${dataset_size}")"
+    "$(sanitize_name "${dataset_size}")")"
+
+  if [[ "${mode}" == "read" ]]; then
+    printf '%s__shared_read' "${key}"
+  else
+    printf '%s__x%s' "${key}" "${x_flag}"
+  fi
 }
 
 extract_metric() {
@@ -412,9 +439,12 @@ append_summary_row() {
 
 prepare_dataset_if_needed() {
   local logical_group="$1"
-  local threads="$2"
-  local dataset_size="$3"
-  local dataset_dir="$4"
+  local mode="$2"
+  local x_flag="$3"
+  local threads="$4"
+  local dataset_size="$5"
+  local repeat_id="$6"
+  local dataset_dir="$7"
   local prepared_key
 
   if [[ "${PREPARE_DATASETS}" != "1" ]]; then
@@ -422,7 +452,7 @@ prepare_dataset_if_needed() {
     return
   fi
 
-  prepared_key="$(dataset_key "${logical_group}" "${threads}" "${dataset_size}")"
+  prepared_key="$(dataset_key "${logical_group}" "${mode}" "${x_flag}" "${threads}" "${dataset_size}" "${repeat_id}")"
   if [[ -n "${PREPARED_DATASETS[${prepared_key}]:-}" ]]; then
     echo "1"
     return
@@ -430,7 +460,7 @@ prepare_dataset_if_needed() {
 
   mkdir -p "${dataset_dir}"
   local prep_log="${dataset_dir}/prep_write.log"
-  echo "[PREP] creating dataset ${dataset_dir} (threads=${threads}, size=${dataset_size})"
+  echo "[PREP] creating dataset ${dataset_dir} (threads=${threads}, size=${dataset_size})" >&2
   set +e
   "${GDSIO}" -D "${dataset_dir}" -d "${GPU_ID}" -w "${threads}" -s "${dataset_size}" -i "${PREP_IO_SIZE}" -x "${PREP_X_FLAG}" -I 1 -T "${PREP_DURATION}" > "${prep_log}" 2>&1
   local prep_rc="$?"
@@ -465,7 +495,7 @@ run_case() {
   safe_io="$(sanitize_name "${io_size}")"
   case_name="${safe_group}__${mode}__x${x_flag}__th${threads}__io${safe_io}__rep${repeat_id}"
   case_dir="${CASES_DIR}/${case_name}"
-  dataset_dir="${DATASET_ROOT}/$(dataset_key "${test_group}" "${threads}" "${dataset_size}")"
+  dataset_dir="${DATASET_ROOT}/$(dataset_key "${test_group}" "${mode}" "${x_flag}" "${threads}" "${dataset_size}" "${repeat_id}")"
   command_file="${case_dir}/command.sh"
   case_info_file="${case_dir}/case_info.txt"
   gdsio_log="${case_dir}/gdsio.log"
@@ -485,7 +515,7 @@ run_case() {
 
   mkdir -p "${case_dir}" "${dataset_dir}"
   register_dataset "${dataset_dir}"
-  prepared_dataset="$(prepare_dataset_if_needed "${test_group}" "${threads}" "${dataset_size}" "${dataset_dir}")"
+  prepared_dataset="$(prepare_dataset_if_needed "${test_group}" "${mode}" "${x_flag}" "${threads}" "${dataset_size}" "${repeat_id}" "${dataset_dir}")"
 
   : > "${case_info_file}"
   write_kv "${case_info_file}" "case_name" "${case_name}"
