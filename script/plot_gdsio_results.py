@@ -5,19 +5,13 @@ import argparse
 import csv
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Tuple
 
 import matplotlib.pyplot as plt
 
 
 SIZE_UNITS = {"K": 1024, "M": 1024**2, "G": 1024**3}
 XFLAG_LABELS = {"0": "GPUD (-x 0)", "2": "CPU_GPU (-x 2)"}
-TEST_GROUPS = [
-    "io_size_sweep_throughput",
-    "io_size_sweep_latency",
-    "thread_sweep_throughput",
-    "thread_sweep_latency",
-]
 METRICS = {
     "throughput_gib_s": "Throughput (GiB/s)",
     "avg_latency_us": "Avg Latency (us)",
@@ -75,6 +69,7 @@ def load_rows(path: Path) -> List[Dict[str, object]]:
             row["avg_latency_us"] = maybe_float(row["avg_latency_us"])
             row["iops"] = maybe_float(row["iops"])
             row["io_size_bytes"] = parse_size_to_bytes(row["io_size"])
+            row["repeat_id"] = maybe_int(row["repeat_id"]) if "repeat_id" in row else None
             rows.append(row)
     return rows
 
@@ -85,11 +80,27 @@ def ensure_output_dir(summary_csv: Path, output_dir: Path | None) -> Path:
     return final_dir
 
 
-def series_by_xflag(rows: Iterable[Dict[str, object]], x_key: str, metric: str) -> Dict[str, List[Dict[str, object]]]:
-    grouped: Dict[str, List[Dict[str, object]]] = defaultdict(list)
+def collapse_repeats(
+    rows: Iterable[Dict[str, object]], x_key: str, metric: str
+) -> Dict[Tuple[str, object], Dict[str, object]]:
+    grouped: Dict[Tuple[str, object], List[Dict[str, object]]] = defaultdict(list)
     for row in rows:
         if row.get(metric) is None:
             continue
+        grouped[(str(row["x_flag"]), row[x_key])].append(row)
+
+    collapsed: Dict[Tuple[str, object], Dict[str, object]] = {}
+    for key, members in grouped.items():
+        base = dict(members[0])
+        base[metric] = sum(float(member[metric]) for member in members) / len(members)
+        collapsed[key] = base
+    return collapsed
+
+
+def series_by_xflag(rows: Iterable[Dict[str, object]], x_key: str, metric: str) -> Dict[str, List[Dict[str, object]]]:
+    grouped: Dict[str, List[Dict[str, object]]] = defaultdict(list)
+    collapsed = collapse_repeats(rows, x_key=x_key, metric=metric)
+    for (_, _), row in collapsed.items():
         grouped[str(row["x_flag"])].append(row)
     for x_flag in grouped:
         grouped[x_flag].sort(key=lambda row: row[x_key])
@@ -170,8 +181,9 @@ def main() -> None:
     rows = load_rows(args.summary_csv)
     output_dir = ensure_output_dir(args.summary_csv, args.output_dir)
 
+    test_groups = sorted({str(row["test_group"]) for row in rows})
     for mode in sorted({str(row["mode"]) for row in rows}):
-        for test_group in TEST_GROUPS:
+        for test_group in test_groups:
             plot_group(rows, output_dir, mode, test_group)
 
     write_manifest(rows, output_dir)
