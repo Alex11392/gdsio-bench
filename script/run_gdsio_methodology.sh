@@ -9,12 +9,10 @@ usage() {
 Usage:
   run_gdsio_methodology.sh [config.env]
 
-This runner splits GDSIO benchmarking into two families:
+This is the canonical benchmark runner kept in this repo.
+It splits GDSIO benchmarking into two families:
   1. Large sequential IO for throughput
   2. Small random IO for IOPS/latency
-
-The script keeps the old suite untouched and writes a new summary.csv that is
-better aligned with NVIDIA's benchmarking guidance.
 EOF
 }
 
@@ -80,17 +78,19 @@ parse_words_var "X_FLAGS_STR" "0 2" X_FLAGS
 REPEATS="${REPEATS:-3}"
 PREPARE_DATASETS="${PREPARE_DATASETS:-1}"
 PREP_X_FLAG="${PREP_X_FLAG:-2}"
-PREP_IO_SIZE="${PREP_IO_SIZE:-1M}"
+PREP_IO_SIZE="${PREP_IO_SIZE:-auto}"
 PREP_DURATION="${PREP_DURATION:-1}"
-RESET_NVFS_STATS="${RESET_NVFS_STATS:-1}"
-SAVE_META="${SAVE_META:-1}"
-SAVE_CUFILE_LOGS="${SAVE_CUFILE_LOGS:-1}"
-ENABLE_MPSTAT="${ENABLE_MPSTAT:-1}"
-ENABLE_PIDSTAT="${ENABLE_PIDSTAT:-1}"
-ENABLE_IOSTAT="${ENABLE_IOSTAT:-1}"
-ENABLE_NVIDIA_DMON="${ENABLE_NVIDIA_DMON:-1}"
-ENABLE_NVFS_SAMPLER="${ENABLE_NVFS_SAMPLER:-1}"
-ENABLE_GDS_STATS="${ENABLE_GDS_STATS:-1}"
+PREP_MIN_FILL_RATIO="${PREP_MIN_FILL_RATIO:-0.95}"
+PREP_MAX_ATTEMPTS="${PREP_MAX_ATTEMPTS:-5}"
+RESET_NVFS_STATS="${RESET_NVFS_STATS:-0}"
+SAVE_META="${SAVE_META:-0}"
+SAVE_CUFILE_LOGS="${SAVE_CUFILE_LOGS:-0}"
+ENABLE_MPSTAT="${ENABLE_MPSTAT:-0}"
+ENABLE_PIDSTAT="${ENABLE_PIDSTAT:-0}"
+ENABLE_IOSTAT="${ENABLE_IOSTAT:-0}"
+ENABLE_NVIDIA_DMON="${ENABLE_NVIDIA_DMON:-0}"
+ENABLE_NVFS_SAMPLER="${ENABLE_NVFS_SAMPLER:-0}"
+ENABLE_GDS_STATS="${ENABLE_GDS_STATS:-0}"
 MPSTAT_INTERVAL="${MPSTAT_INTERVAL:-1}"
 PIDSTAT_INTERVAL="${PIDSTAT_INTERVAL:-1}"
 IOSTAT_INTERVAL="${IOSTAT_INTERVAL:-1}"
@@ -121,9 +121,19 @@ RAND_FILL_BUFFER="${RAND_FILL_BUFFER:-0}"
 MODES_STR="${MODES_STR-read write}"
 parse_words_var "MODES_STR" "read write" MODES
 
+BENCH_FAMILY="${BENCH_FAMILY:-all}"
+case "${BENCH_FAMILY}" in
+  all|io_size|threads) ;;
+  *)
+    echo "ERROR: unsupported BENCH_FAMILY=${BENCH_FAMILY} (expected all, io_size, or threads)" >&2
+    exit 1
+    ;;
+esac
+
 declare -a RUN_DATASETS=()
 declare -A PREPARED_DATASETS=()
 declare -A GDSIO_PIDS=()
+PREPARED_DATASET_RESULT="0"
 
 require_cmd() {
   local cmd="$1"
@@ -253,6 +263,20 @@ extract_metric() {
 extract_xfertype() {
   local log_file="$1"
   sed -n 's/.*XferType: \([^ ]*\).*/\1/p' "${log_file}" | tail -n 1
+}
+
+extract_dataset_progress_kib() {
+  local log_file="$1"
+  sed -n 's/.*DataSetSize: \([0-9][0-9]*\)\/\([0-9][0-9]*\)(KiB).*/\1 \2/p' "${log_file}" | tail -n 1
+}
+
+resolve_prep_io_size() {
+  local io_size="$1"
+  if [[ -z "${PREP_IO_SIZE}" || "${PREP_IO_SIZE}" == "auto" ]]; then
+    echo "${io_size}"
+  else
+    echo "${PREP_IO_SIZE}"
+  fi
 }
 
 reset_nvfs_stats_if_possible() {
@@ -445,33 +469,61 @@ prepare_dataset_if_needed() {
   local dataset_size="$5"
   local repeat_id="$6"
   local dataset_dir="$7"
+  local io_size="$8"
   local prepared_key
 
   if [[ "${PREPARE_DATASETS}" != "1" ]]; then
-    echo "0"
+    PREPARED_DATASET_RESULT="0"
     return
   fi
 
   prepared_key="$(dataset_key "${logical_group}" "${mode}" "${x_flag}" "${threads}" "${dataset_size}" "${repeat_id}")"
   if [[ -n "${PREPARED_DATASETS[${prepared_key}]:-}" ]]; then
-    echo "1"
+    PREPARED_DATASET_RESULT="1"
     return
   fi
 
   mkdir -p "${dataset_dir}"
   local prep_log="${dataset_dir}/prep_write.log"
-  echo "[PREP] creating dataset ${dataset_dir} (threads=${threads}, size=${dataset_size})" >&2
-  set +e
-  "${GDSIO}" -D "${dataset_dir}" -d "${GPU_ID}" -w "${threads}" -s "${dataset_size}" -i "${PREP_IO_SIZE}" -x "${PREP_X_FLAG}" -I 1 -T "${PREP_DURATION}" > "${prep_log}" 2>&1
-  local prep_rc="$?"
-  set -e
-  if [[ "${prep_rc}" != "0" ]]; then
-    echo "ERROR: dataset preparation failed for ${dataset_dir}. See ${prep_log}" >&2
-    exit "${prep_rc}"
+  local prep_io_size
+  prep_io_size="$(resolve_prep_io_size "${io_size}")"
+  local attempt=1
+  local current_duration="${PREP_DURATION}"
+  local actual_kib="" target_kib="" fill_ratio=""
+  while (( attempt <= PREP_MAX_ATTEMPTS )); do
+    rm -rf "${dataset_dir:?}/"*
+    echo "[PREP] creating dataset ${dataset_dir} (threads=${threads}, size=${dataset_size}, io_size=${prep_io_size}, duration=${current_duration}s, attempt=${attempt})" >&2
+    set +e
+    "${GDSIO}" -D "${dataset_dir}" -d "${GPU_ID}" -w "${threads}" -s "${dataset_size}" -i "${prep_io_size}" -x "${PREP_X_FLAG}" -I 1 -T "${current_duration}" > "${prep_log}" 2>&1
+    local prep_rc="$?"
+    set -e
+    if [[ "${prep_rc}" != "0" ]]; then
+      echo "ERROR: dataset preparation failed for ${dataset_dir}. See ${prep_log}" >&2
+      exit "${prep_rc}"
+    fi
+
+    read -r actual_kib target_kib <<< "$(extract_dataset_progress_kib "${prep_log}")"
+    if [[ -n "${actual_kib}" && -n "${target_kib}" ]]; then
+      fill_ratio="$(awk -v actual="${actual_kib}" -v target="${target_kib}" 'BEGIN { if (target > 0) printf "%.6f", actual / target; }')"
+      if awk -v ratio="${fill_ratio}" -v min_ratio="${PREP_MIN_FILL_RATIO}" 'BEGIN { exit !(ratio >= min_ratio) }'; then
+        break
+      fi
+      echo "[PREP] dataset underfilled: actual=${actual_kib}KiB target=${target_kib}KiB ratio=${fill_ratio}; retrying" >&2
+    else
+      echo "[PREP] could not parse DataSetSize from ${prep_log}; retrying" >&2
+    fi
+
+    attempt=$((attempt + 1))
+    current_duration=$((current_duration * 2))
+  done
+
+  if (( attempt > PREP_MAX_ATTEMPTS )); then
+    echo "ERROR: dataset preparation did not reach fill ratio ${PREP_MIN_FILL_RATIO} for ${dataset_dir}. See ${prep_log}" >&2
+    exit 1
   fi
 
   PREPARED_DATASETS["${prepared_key}"]="1"
-  echo "1"
+  PREPARED_DATASET_RESULT="1"
 }
 
 run_case() {
@@ -515,7 +567,8 @@ run_case() {
 
   mkdir -p "${case_dir}" "${dataset_dir}"
   register_dataset "${dataset_dir}"
-  prepared_dataset="$(prepare_dataset_if_needed "${test_group}" "${mode}" "${x_flag}" "${threads}" "${dataset_size}" "${repeat_id}" "${dataset_dir}")"
+  prepare_dataset_if_needed "${test_group}" "${mode}" "${x_flag}" "${threads}" "${dataset_size}" "${repeat_id}" "${dataset_dir}" "${io_size}"
+  prepared_dataset="${PREPARED_DATASET_RESULT}"
 
   : > "${case_info_file}"
   write_kv "${case_info_file}" "case_name" "${case_name}"
@@ -597,21 +650,29 @@ run_matrix() {
   for repeat_id in $(seq 1 "${REPEATS}"); do
     for x_flag in "${X_FLAGS[@]}"; do
       for mode in "${MODES[@]}"; do
-        for io_size in "${SEQ_IO_SIZES[@]}"; do
-          run_case "io_size_sweep_throughput" "${mode}" "seq" "throughput" "io_size" "${repeat_id}" "${x_flag}" "${SEQ_IO_SWEEP_THREADS}" "${SEQ_DATASET_SIZE}" "${io_size}"
-        done
+        case "${BENCH_FAMILY}" in
+          all|io_size)
+            for io_size in "${SEQ_IO_SIZES[@]}"; do
+              run_case "io_size_sweep_throughput" "${mode}" "seq" "throughput" "io_size" "${repeat_id}" "${x_flag}" "${SEQ_IO_SWEEP_THREADS}" "${SEQ_DATASET_SIZE}" "${io_size}"
+            done
 
-        for threads in "${SEQ_THREADS[@]}"; do
-          run_case "thread_sweep_throughput" "${mode}" "seq" "throughput" "threads" "${repeat_id}" "${x_flag}" "${threads}" "${SEQ_DATASET_SIZE}" "${SEQ_THREAD_SWEEP_IO_SIZE}"
-        done
+            for io_size in "${RAND_IO_SIZES[@]}"; do
+              run_case "io_size_sweep_iops" "${mode}" "rand" "iops_latency" "io_size" "${repeat_id}" "${x_flag}" "${RAND_IO_SWEEP_THREADS}" "${RAND_DATASET_SIZE}" "${io_size}"
+            done
+            ;;
+        esac
 
-        for io_size in "${RAND_IO_SIZES[@]}"; do
-          run_case "io_size_sweep_iops" "${mode}" "rand" "iops_latency" "io_size" "${repeat_id}" "${x_flag}" "${RAND_IO_SWEEP_THREADS}" "${RAND_DATASET_SIZE}" "${io_size}"
-        done
+        case "${BENCH_FAMILY}" in
+          all|threads)
+            for threads in "${SEQ_THREADS[@]}"; do
+              run_case "thread_sweep_throughput" "${mode}" "seq" "throughput" "threads" "${repeat_id}" "${x_flag}" "${threads}" "${SEQ_DATASET_SIZE}" "${SEQ_THREAD_SWEEP_IO_SIZE}"
+            done
 
-        for threads in "${RAND_THREADS[@]}"; do
-          run_case "thread_sweep_iops" "${mode}" "rand" "iops_latency" "threads" "${repeat_id}" "${x_flag}" "${threads}" "${RAND_DATASET_SIZE}" "${RAND_THREAD_SWEEP_IO_SIZE}"
-        done
+            for threads in "${RAND_THREADS[@]}"; do
+              run_case "thread_sweep_iops" "${mode}" "rand" "iops_latency" "threads" "${repeat_id}" "${x_flag}" "${threads}" "${RAND_DATASET_SIZE}" "${RAND_THREAD_SWEEP_IO_SIZE}"
+            done
+            ;;
+        esac
       done
     done
   done

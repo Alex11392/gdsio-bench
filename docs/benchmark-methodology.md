@@ -1,21 +1,24 @@
-# GDSIO Benchmark Methodology
+# GDSIO Experiment Notes
 
-This repo now contains two runners:
+## 1. How We Run The Experiment
 
-- `script/run_gdsio_suite.sh`: the original matrix runner
-- `script/run_gdsio_methodology.sh`: a methodology-oriented runner that separates throughput and small-IO benchmarking
+The repo now uses only one runner:
 
-The new runner is designed around NVIDIA's current GDS guidance:
+- `script/run_gdsio_methodology.sh`
 
-- large sequential IO should be used for throughput-oriented comparisons
-- small random IO should be used for IOPS and latency comparisons
-- benchmarking should be done only after checking topology and direct-path readiness
+The canonical config is:
 
-## Recommended process
+- `configs/methodology_full.env`
 
-1. Verify the platform first
+The baseline command is:
 
-Collect these before trusting any benchmark result:
+```bash
+./script/run_gdsio_methodology.sh ./configs/methodology_full.env
+```
+
+The runner is intentionally built around `gdsio -D <dir>` rather than `-f <file>`, because the directory mode matches the multi-threaded test layout better and lets `gdsio` manage per-thread working files.
+
+Before trusting any benchmark result, we verify the platform first:
 
 - `gdscheck -p`
 - `nvidia-smi topo -m`
@@ -23,82 +26,72 @@ Collect these before trusting any benchmark result:
 - `mount`
 - `lspci -tv`
 
-The runner stores these in `results/<run_id>/meta/` when available.
+The full experiment is split into two benchmark families:
 
-2. Benchmark large sequential IO separately
+- Large sequential IO for throughput
+  - patterns: `read`, `write`
+  - IO sizes: `128K 256K 512K 1M 2M 4M`
+  - thread sweep IO size: `1M`
+  - primary metric: `throughput_gib_s`
+- Small random IO for IOPS and latency
+  - patterns: `randread`, `randwrite`
+  - IO sizes: `4K 8K 16K 32K 64K 128K`
+  - thread sweep IO size: `4K`
+  - primary metrics: `iops`, `avg_latency_us`
 
-Use this family to compare throughput:
+The default full config uses:
 
-- pattern: `read`, `write`
-- IO sizes: `128K` to `4M`
-- thread sweep IO size: `1M`
-- primary metric: `throughput_gib_s`
+- `REPEATS=3`
+- `PREPARE_DATASETS=1`
+- `X_FLAGS_STR="0 2"`
 
-3. Benchmark small random IO separately
+`PREPARE_DATASETS=1` is important because it makes the read path use already-written shared datasets instead of mixing the benchmark with file allocation or file extension overhead.
 
-Use this family to compare low-latency behavior:
+Each run writes to:
 
-- pattern: `randread`, `randwrite`
-- IO sizes: `4K` to `128K`
-- thread sweep IO size: `4K`
-- primary metrics: `iops`, `avg_latency_us`
+- `results/<run_id>/meta/`
+- `results/<run_id>/cases/`
+- `results/<run_id>/summary.csv`
 
-4. Repeat each case
-
-The methodology runner defaults to `REPEATS=3` in the full config and keeps `repeat_id` in `summary.csv`.
-
-5. Pre-create datasets
-
-The runner supports `PREPARE_DATASETS=1` so benchmarked writes are not dominated by file creation or file-extension overhead. This matters because some file systems may fall back away from the ideal direct path when writes allocate or extend blocks.
-
-## Dataset guidance
-
-The benchmark uses `gdsio -D <dir>` rather than `-f <file>`.
-
-That means `gdsio` manages the benchmark files under a target directory, which is a good fit for multi-threaded experiments where each thread needs its own working file.
-
-Suggested dataset sizes:
-
-- sequential throughput: at least `1G`
-- small random IO: at least `1G`
-
-If your SSD has a strong cache effect or burst behavior, increase dataset size further so results represent sustained behavior rather than short-lived cache bursts.
-
-## Monitoring captured per case
-
-When tools are available, each case captures:
-
-- `mpstat.log`
-- `pidstat.log`
-- `iostat.log`
-- `nvidia-smi-dmon.log`
-- `gds_stats.log`
-- `nvidia_fs_stats_before.txt`
-- `nvidia_fs_stats_after.txt`
-- `nvidia_fs_stats_samples.log`
-
-Use these as supporting evidence, not the main result:
-
-- `throughput_gib_s` is still the main metric for large sequential IO
-- `iops` and `avg_latency_us` are the main metrics for small random IO
-- CPU and device monitors help explain *why* a result changed
-
-## Suggested workflow
-
-Run a quick validation:
-
-```bash
-./script/run_gdsio_methodology.sh ./configs/methodology_smoke.env
-```
-
-Run the full benchmark:
-
-```bash
-./script/run_gdsio_methodology.sh ./configs/methodology_full.env
-```
-
-Generate plots:
+The plotting step stays separate:
 
 ```bash
 python3 ./script/plot_gdsio_results.py ./results/<run_id>/summary.csv
 ```
+
+## 2. PCIe Link Problem And How We Checked It
+
+The platform issue we saw was not a simple idle power-saving state. The GPU PCIe links were unstable under load and could downshift from `Gen4 x16` to `Gen2` or `Gen1 x16` during a live benchmark run.
+
+The checks we used were:
+
+- Functional GDS readiness
+  - `gdscheck -p`
+- Real GPU visibility
+  - `nvidia-smi`
+- Current PCIe link state per GPU
+  - `cat /sys/bus/pci/devices/<bdf>/current_link_speed`
+  - `cat /sys/bus/pci/devices/<bdf>/current_link_width`
+  - `cat /sys/bus/pci/devices/<bdf>/max_link_speed`
+  - `cat /sys/bus/pci/devices/<bdf>/max_link_width`
+- Direct-path benchmark comparison
+  - `gdsio` with `-x 0` versus `-x 2`
+- Time-correlated PCIe monitoring during the benchmark
+  - run `gdsio -T 30`
+  - poll all GPU `current_link_speed` values every second during the same 30-second window
+
+That last check mattered because it showed the actual failure mode:
+
+- at the start of the run, all monitored GPUs could come up at `Gen4 x16`
+- during the same running `gdsio` job, multiple GPUs would downshift
+- after roughly the middle of the run, the links could end up at `Gen1 x16`
+
+So the issue was not only "the benchmark ended and the link later went idle". The downshift happened while the benchmark was still active.
+
+We also used `gdscheck -p` to track platform-level blockers:
+
+- earlier runs reported `IOMMU: Pass-through or enabled`
+- earlier runs reported `ACS enabled` on multiple switches
+- after disabling those settings, `gdscheck -p` changed to `IOMMU: disabled` and stopped reporting the ACS warning
+
+That improved the platform state, but it did not fully solve the PCIe instability. The remaining issue is the live PCIe link downshift under load, which still needs platform-level investigation through BIOS, root-port, switch, retimer, or AER/error analysis.
