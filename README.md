@@ -8,6 +8,7 @@ Single-runner GDSIO benchmark repo for comparing GPUD (`-x 0`) and CPU bounce (`
 - `script/plot_gdsio_results.py`: plot generator kept as-is
 - `configs/methodology_full.env`: canonical experiment config
 - `docs/benchmark-methodology.md`: experiment procedure and PCIe issue notes
+- `docs/methodology_full_20260424_131442.md`: first full methodology run record with findings and repeat-to-repeat notes
 
 ## Run
 
@@ -16,6 +17,11 @@ Single-runner GDSIO benchmark repo for comparing GPUD (`-x 0`) and CPU bounce (`
 ```
 
 The canonical config now uses `RUNTIME=10` by default. That is deliberate: on this host, 30-second GPUD runs can trigger mid-run PCIe downshift and skew the result.
+
+Completed run artifacts committed in this repo:
+
+- report: [docs/methodology_full_20260424_131442.md](/home/poc/gds_bench/docs/methodology_full_20260424_131442.md)
+- figures: [docs/figures/methodology_full_20260424_131442](/home/poc/gds_bench/docs/figures/methodology_full_20260424_131442)
 
 Generate plots from a finished run:
 
