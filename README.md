@@ -15,6 +15,8 @@ Single-runner GDSIO benchmark repo for comparing GPUD (`-x 0`) and CPU bounce (`
 ./script/run_gdsio_methodology.sh ./configs/methodology_full.env
 ```
 
+The canonical config now uses `RUNTIME=10` by default. That is deliberate: on this host, 30-second GPUD runs can trigger mid-run PCIe downshift and skew the result.
+
 Generate plots from a finished run:
 
 ```bash

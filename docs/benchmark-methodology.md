@@ -41,11 +41,14 @@ The full experiment is split into two benchmark families:
 
 The default full config uses:
 
+- `RUNTIME=10`
 - `REPEATS=3`
 - `PREPARE_DATASETS=1`
 - `X_FLAGS_STR="0 2"`
 
 `PREPARE_DATASETS=1` is important because it makes the read path use already-written shared datasets instead of mixing the benchmark with file allocation or file extension overhead.
+
+`RUNTIME=10` is also intentional on this platform. We verified that 10-second `-x 0` runs can bring all GPU links up to `Gen4 x16` and stay there for the full measurement window, while some 30-second runs downshift mid-run and distort the sustained result.
 
 Each run writes to:
 
@@ -77,8 +80,8 @@ The checks we used were:
 - Direct-path benchmark comparison
   - `gdsio` with `-x 0` versus `-x 2`
 - Time-correlated PCIe monitoring during the benchmark
-  - run `gdsio -T 30`
-  - poll all GPU `current_link_speed` values every second during the same 30-second window
+  - run `gdsio -T 10` and `gdsio -T 30` with the same IO settings
+  - poll all GPU `current_link_speed` values every second during each benchmark window
 
 That last check mattered because it showed the actual failure mode:
 
@@ -87,6 +90,11 @@ That last check mattered because it showed the actual failure mode:
 - after roughly the middle of the run, the links could end up at `Gen1 x16`
 
 So the issue was not only "the benchmark ended and the link later went idle". The downshift happened while the benchmark was still active.
+
+The practical decision for this repo is:
+
+- use `10s` as the default benchmark runtime
+- avoid `30s` as the default until the platform-level PCIe instability is fixed
 
 We also used `gdscheck -p` to track platform-level blockers:
 

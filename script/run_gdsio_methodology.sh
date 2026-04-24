@@ -42,7 +42,7 @@ fi
 GDSIO="${GDSIO:-/usr/local/cuda-13.2/gds/tools/gdsio}"
 TARGET_DIR="${TARGET_DIR:-/mnt/nvme0}"
 GPU_ID="${GPU_ID:-0}"
-RUNTIME="${RUNTIME:-120}"
+RUNTIME="${RUNTIME:-10}"
 VERIFY="${VERIFY:-0}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-${PROJECT_ROOT}/results}"
 RUN_ID="${RUN_ID:-methodology_$(date +%Y%m%d_%H%M%S)}"
