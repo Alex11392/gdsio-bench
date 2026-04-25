@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 
 
 SIZE_UNITS = {"K": 1024, "M": 1024**2, "G": 1024**3}
@@ -17,6 +18,7 @@ METRICS = {
     "avg_latency_us": "Avg Latency (us)",
     "iops": "IOPS",
 }
+PRIMARY_METRICS = {"throughput_gib_s", "iops"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,31 +109,90 @@ def series_by_xflag(rows: Iterable[Dict[str, object]], x_key: str, metric: str) 
     return grouped
 
 
+def summarize_fixed_params(rows: List[Dict[str, object]], x_key: str) -> str:
+    if not rows:
+        return ""
+
+    fixed_parts: List[str] = []
+
+    if x_key == "io_size_bytes":
+        thread_values = sorted({int(row["threads"]) for row in rows})
+        if len(thread_values) == 1:
+            fixed_parts.append(f"threads={thread_values[0]}")
+    else:
+        io_values = sorted({str(row["io_size"]) for row in rows})
+        if len(io_values) == 1:
+            fixed_parts.append(f"io_size={io_values[0]}")
+
+    return ", ".join(fixed_parts)
+
+
+def format_annotation(metric: str, value: float) -> str:
+    if metric == "throughput_gib_s":
+        return f"{value:.2f}"
+    if metric == "iops":
+        return f"{value/1000:.0f}k" if value >= 10000 else f"{value:.0f}"
+    return f"{value:.0f}"
+
+
+def annotation_indices(series: List[Dict[str, object]], metric: str) -> List[int]:
+    if metric not in PRIMARY_METRICS or not series:
+        return []
+
+    indices = {0, len(series) - 1}
+    max_idx = max(range(len(series)), key=lambda idx: float(series[idx][metric]))
+    indices.add(max_idx)
+    return sorted(indices)
+
+
 def make_plot(
     rows: List[Dict[str, object]],
     metric: str,
     title: str,
+    subtitle: str,
     x_label: str,
     output_path: Path,
     x_key: str,
     x_display_key: str,
 ) -> None:
-    plt.figure(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(9, 5.8))
     grouped = series_by_xflag(rows, x_key=x_key, metric=metric)
     for x_flag, series in sorted(grouped.items()):
         xs = [row[x_key] for row in series]
         ys = [row[metric] for row in series]
         tick_labels = [str(row[x_display_key]) for row in series]
-        plt.plot(xs, ys, marker="o", linewidth=2, label=XFLAG_LABELS.get(x_flag, f"-x {x_flag}"))
-        plt.xticks(xs, tick_labels)
-    plt.title(title)
-    plt.xlabel(x_label)
-    plt.ylabel(METRICS[metric])
-    plt.grid(True, linestyle="--", alpha=0.35)
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=180)
-    plt.close()
+        ax.plot(xs, ys, marker="o", linewidth=2, label=XFLAG_LABELS.get(x_flag, f"-x {x_flag}"))
+        for idx in annotation_indices(series, metric):
+            ax.annotate(
+                format_annotation(metric, float(ys[idx])),
+                (xs[idx], ys[idx]),
+                textcoords="offset points",
+                xytext=(0, 8),
+                ha="center",
+                fontsize=8,
+            )
+        ax.set_xticks(xs, tick_labels)
+
+    ax.set_title(title, fontsize=12, pad=28)
+    if subtitle:
+        ax.text(
+            0.5,
+            1.03,
+            subtitle,
+            transform=ax.transAxes,
+            ha="center",
+            va="bottom",
+            fontsize=9,
+            color="dimgray",
+        )
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(METRICS[metric])
+    ax.grid(True, linestyle="--", alpha=0.35)
+    ax.legend()
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=7))
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
 
 
 def plot_group(rows: List[Dict[str, object]], output_dir: Path, mode: str, test_group: str) -> None:
@@ -148,6 +209,8 @@ def plot_group(rows: List[Dict[str, object]], output_dir: Path, mode: str, test_
         x_display_key = "threads"
         x_label = "Threads"
 
+    subtitle = summarize_fixed_params(subset, x_key=x_key)
+
     for metric in METRICS:
         output_path = output_dir / f"{test_group}__{mode}__{metric}.png"
         title = f"{test_group} | {mode} | {METRICS[metric]}"
@@ -155,6 +218,7 @@ def plot_group(rows: List[Dict[str, object]], output_dir: Path, mode: str, test_
             subset,
             metric=metric,
             title=title,
+            subtitle=subtitle,
             x_label=x_label,
             output_path=output_path,
             x_key=x_key,
@@ -192,4 +256,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
