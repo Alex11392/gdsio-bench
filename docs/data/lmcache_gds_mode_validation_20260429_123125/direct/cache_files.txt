@@ -1,0 +1,6 @@
+/mnt/nvme0/lmcache_gds_mode_validation_20260429_123125_direct_cache/-1/72/facebook_opt-125m@1@0@-17e962450a12c0d5@half.kvcache.safetensors
+/mnt/nvme0/lmcache_gds_mode_validation_20260429_123125_direct_cache/-1/72/facebook_opt-125m@1@0@-17e962450a12c0d5@half.kvcache.safetensors.metadata
+/mnt/nvme0/lmcache_gds_mode_validation_20260429_123125_direct_cache/10/96/facebook_opt-125m@1@0@f369f6ea5aeeac5@half.kvcache.safetensors
+/mnt/nvme0/lmcache_gds_mode_validation_20260429_123125_direct_cache/10/96/facebook_opt-125m@1@0@f369f6ea5aeeac5@half.kvcache.safetensors.metadata
+/mnt/nvme0/lmcache_gds_mode_validation_20260429_123125_direct_cache/73/29/facebook_opt-125m@1@0@65b899f6fe93fed3@half.kvcache.safetensors
+/mnt/nvme0/lmcache_gds_mode_validation_20260429_123125_direct_cache/73/29/facebook_opt-125m@1@0@65b899f6fe93fed3@half.kvcache.safetensors.metadata

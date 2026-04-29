@@ -9,6 +9,8 @@ Single-runner GDSIO benchmark repo for comparing GPUD (`-x 0`) and CPU bounce (`
 - `configs/methodology_full.env`: canonical experiment config
 - `docs/benchmark-methodology.md`: experiment procedure and PCIe issue notes
 - `docs/methodology_full_20260424_131442.md`: first full methodology run record with findings and repeat-to-repeat notes
+- `docs/lmcache_gds_mode_validation_methodology.md`: methodology for validating LMCache direct GDS mode vs forced fallback mode
+- `docs/lmcache_gds_mode_validation_20260429_123125.md`: committed run record showing both LMCache direct mode and forced fallback mode working
 
 ## Run
 
@@ -22,6 +24,8 @@ Completed run artifacts committed in this repo:
 
 - report: [docs/methodology_full_20260424_131442.md](/home/poc/gds_bench/docs/methodology_full_20260424_131442.md)
 - figures: [docs/figures/methodology_full_20260424_131442](/home/poc/gds_bench/docs/figures/methodology_full_20260424_131442)
+- report: [docs/lmcache_gds_mode_validation_20260429_123125.md](/home/poc/gds_bench/docs/lmcache_gds_mode_validation_20260429_123125.md)
+- curated data: [docs/data/lmcache_gds_mode_validation_20260429_123125](/home/poc/gds_bench/docs/data/lmcache_gds_mode_validation_20260429_123125)
 
 Generate plots from a finished run:
 

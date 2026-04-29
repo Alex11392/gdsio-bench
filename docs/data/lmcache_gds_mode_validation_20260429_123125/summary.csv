@@ -1,0 +1,3 @@
+mode,use_cufile,first_request_ms,second_request_ms,stored_tokens,lmcache_hit_tokens,cache_file_count,prompt_tokens,total_tokens,completion_tokens,direct_branch_log,fallback_branch_log,cufile_delta_bytes
+direct,true,272,199,768,768,6,898,994,96,1,0,0
+forced_fallback,false,366,187,768,768,6,898,994,96,0,1,0

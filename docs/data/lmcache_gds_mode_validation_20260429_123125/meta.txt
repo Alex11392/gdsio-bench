@@ -1,0 +1,7 @@
+run_id=lmcache_gds_mode_validation_20260429_123125
+timestamp=2026-04-29T12:31:25+08:00
+hostname=aiserver-nv-6000ada-x8-122
+pwd=/home/poc/gds_bench
+repo_root=/home/poc/gds_bench
+venv_dir=/home/poc/vllm_lmcache_gds/.venv
+request_json=/home/poc/gds_bench/docs/data/lmcache_long_prompt_request.json
