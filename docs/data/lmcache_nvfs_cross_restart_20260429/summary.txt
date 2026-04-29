@@ -1,0 +1,40 @@
+WORKDIR=/tmp/lmcache_nvfs_verify_seeded.fVspJf
+CACHE_DIR=/mnt/nvme0/lmcache_nvfs_verify_cache_seeded
+ENGINE_WRITE_PID=132812
+ENGINE_READ_PID=133294
+CUFILE_WRITE_LOG=/home/poc/cufile_log/cufile_132812_2026-04-29.13:48:01.log
+CUFILE_READ_LOG=/home/poc/cufile_log/cufile_133294_2026-04-29.13:48:33.log
+--- WRITE LOG KEY ---
+(EngineCore pid=132812) [2026-04-29 13:48:01,751] LMCache INFO: Using cufile
+(EngineCore pid=132812) [2026-04-29 13:48:08,856] LMCache INFO: Reqid: cmpl-9493f56aac845da3-0-95cf61ef, Total tokens 898, Inference Engine computed tokens: 0, LMCache hit tokens: 0, need to load: 0
+(EngineCore pid=132812) [2026-04-29 13:48:08,878] LMCache INFO: [req_id=cmpl-9493f56aac845da3-0-95cf61ef] Stored 768 out of total 768 tokens. size: 0.0264 GB, cost 4.7665 ms, throughput: 5.5318 GB/s; offload_time: 3.1782 ms, put_time: 1.5523 ms
+--- READ LOG KEY ---
+(EngineCore pid=133294) [2026-04-29 13:48:33,956] LMCache INFO: Using cufile
+(EngineCore pid=133294) [2026-04-29 13:48:41,510] LMCache INFO: Reqid: cmpl-8fb8df83871283c4-0-b7b745f0, Total tokens 898, Inference Engine computed tokens: 0, LMCache hit tokens: 768, need to load: 768
+(EngineCore pid=133294) [2026-04-29 13:48:41,541] LMCache INFO: [req_id=cmpl-8fb8df83871283c4-0-b7b745f0] Retrieved 768 out of 768 required tokens (from 768 total tokens). size: 0.0264 gb, cost 18.7018 ms, throughput: 1.4099 GB/s;
+--- CUFILE WRITE KEY ---
+29-04-2026 13:48:01:622 [pid=132812 tid=132812] INFO   0:179 nvidia_fs driver open invoked
+29-04-2026 13:48:01:624 [pid=132812 tid=132812] INFO   cufio-drv:510 NVMe               : nvfs, compat
+29-04-2026 13:48:01:750 [pid=132812 tid=132812] DEBUG  cufio_core:1806 cuFileBufRegister done
+29-04-2026 13:48:08:888 [pid=132812 tid=133144] DEBUG  cufio:356 cuFileHandleRegister success
+29-04-2026 13:48:08:888 [pid=132812 tid=133143] DEBUG  cufio:356 cuFileHandleRegister success
+29-04-2026 13:48:08:888 [pid=132812 tid=133141] DEBUG  cufio:356 cuFileHandleRegister success
+29-04-2026 13:48:08:888 [pid=132812 tid=133143] DEBUG  cufio:504 cuFileWrite invoked
+29-04-2026 13:48:08:888 [pid=132812 tid=133144] DEBUG  cufio:504 cuFileWrite invoked
+29-04-2026 13:48:08:888 [pid=132812 tid=133141] DEBUG  cufio:504 cuFileWrite invoked
+29-04-2026 13:48:08:890 [pid=132812 tid=133143] DEBUG  cufio:535 cuFileWrite done
+29-04-2026 13:48:08:894 [pid=132812 tid=133144] DEBUG  cufio:535 cuFileWrite done
+29-04-2026 13:48:08:894 [pid=132812 tid=133141] DEBUG  cufio:535 cuFileWrite done
+--- CUFILE READ KEY ---
+29-04-2026 13:48:33:825 [pid=133294 tid=133294] INFO   0:179 nvidia_fs driver open invoked
+29-04-2026 13:48:33:827 [pid=133294 tid=133294] INFO   cufio-drv:510 NVMe               : nvfs, compat
+29-04-2026 13:48:33:955 [pid=133294 tid=133294] DEBUG  cufio_core:1806 cuFileBufRegister done
+29-04-2026 13:48:41:529 [pid=133294 tid=133294] DEBUG  cufio:356 cuFileHandleRegister success
+29-04-2026 13:48:41:529 [pid=133294 tid=133294] DEBUG  cufio:438 cuFileRead invoked
+29-04-2026 13:48:41:533 [pid=133294 tid=133294] DEBUG  cufio:469 cuFileRead done
+29-04-2026 13:48:41:533 [pid=133294 tid=133294] DEBUG  cufio:356 cuFileHandleRegister success
+29-04-2026 13:48:41:533 [pid=133294 tid=133294] DEBUG  cufio:438 cuFileRead invoked
+29-04-2026 13:48:41:535 [pid=133294 tid=133294] DEBUG  cufio:469 cuFileRead done
+29-04-2026 13:48:41:536 [pid=133294 tid=133294] DEBUG  cufio:356 cuFileHandleRegister success
+29-04-2026 13:48:41:536 [pid=133294 tid=133294] DEBUG  cufio:438 cuFileRead invoked
+29-04-2026 13:48:41:538 [pid=133294 tid=133294] DEBUG  cufio:469 cuFileRead done

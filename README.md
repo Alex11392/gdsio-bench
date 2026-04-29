@@ -11,6 +11,7 @@ Single-runner GDSIO benchmark repo for comparing GPUD (`-x 0`) and CPU bounce (`
 - `docs/methodology_full_20260424_131442.md`: first full methodology run record with findings and repeat-to-repeat notes
 - `docs/lmcache_gds_mode_validation_methodology.md`: methodology for validating LMCache direct GDS mode vs forced fallback mode
 - `docs/lmcache_gds_mode_validation_20260429_123125.md`: committed run record showing both LMCache direct mode and forced fallback mode working
+- `docs/data/lmcache_nvfs_cross_restart_20260429/summary.txt`: cross-restart proof that direct mode really performed cuFile write/read through `nvidia-fs`
 
 ## Run
 
@@ -26,6 +27,7 @@ Completed run artifacts committed in this repo:
 - figures: [docs/figures/methodology_full_20260424_131442](/home/poc/gds_bench/docs/figures/methodology_full_20260424_131442)
 - report: [docs/lmcache_gds_mode_validation_20260429_123125.md](/home/poc/gds_bench/docs/lmcache_gds_mode_validation_20260429_123125.md)
 - curated data: [docs/data/lmcache_gds_mode_validation_20260429_123125](/home/poc/gds_bench/docs/data/lmcache_gds_mode_validation_20260429_123125)
+- direct nvfs proof: [docs/data/lmcache_nvfs_cross_restart_20260429/summary.txt](/home/poc/gds_bench/docs/data/lmcache_nvfs_cross_restart_20260429/summary.txt)
 
 Generate plots from a finished run:
 

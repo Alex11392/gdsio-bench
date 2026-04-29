@@ -69,6 +69,44 @@
   - The direct-mode run entered the `GdsBackend` branch that uses `cufile.CuFile(...)`.
   - Because the target filesystem is `xfs`, LMCache did not auto-disable cuFile.
 
+## Addendum: direct mode was verified against per-process cuFile logs
+
+- Supplemental cross-restart evidence
+  - [`docs/data/lmcache_nvfs_cross_restart_20260429/summary.txt`](/home/poc/gds_bench/docs/data/lmcache_nvfs_cross_restart_20260429/summary.txt)
+
+- Why this addendum was needed
+  - The original same-process run proved direct vs forced-fallback branch selection.
+  - It did not by itself prove that a later process reloaded SSD cache through `nvidia-fs/cuFile`.
+
+- What the supplemental direct-only check did
+  - started a first direct-mode service with `PYTHONHASHSEED=0`
+  - stored cache to SSD
+  - stopped that service
+  - started a second direct-mode service with the same SSD cache path and the same `PYTHONHASHSEED=0`
+  - sent the same request again
+
+- LMCache evidence from the second service
+  - `LMCache hit tokens: 768`
+  - `need to load: 768`
+  - `Retrieved 768 out of 768 required tokens`
+
+- cuFile driver evidence from the second service's own `cufile_<pid>.log`
+  - `nvidia_fs driver open invoked`
+  - `NVMe : nvfs, compat`
+  - `cuFileRead invoked`
+  - `cuFileRead done`
+
+- cuFile driver evidence from the first service's own `cufile_<pid>.log`
+  - `nvidia_fs driver open invoked`
+  - `NVMe : nvfs, compat`
+  - `cuFileWrite invoked`
+  - `cuFileWrite done`
+
+- Interpretation
+  - The direct-mode write path really went through `cuFile` on top of `nvidia-fs` to NVMe.
+  - The direct-mode read path also really went through `cuFile` on top of `nvidia-fs` to reload SSD cache into a fresh process.
+  - The three `cuFileRead invoked/done` pairs line up with the three 256-token LMCache chunks that make up the `768` loaded tokens.
+
 ## Evidence 2: forced fallback mode selected the non-cuFile branch
 
 - Key log lines
@@ -127,20 +165,12 @@
   - The LMCache success criteria for this experiment came from request-level LMCache logs, not from the `external_prefix_cache_hits_total` counter.
   - On this version combination (`vLLM 0.18.0`, `LMCache 0.4.2`), the request-level LMCache hit signal was the reliable indicator.
 
-## Caveat: cuFile global log did not add usable per-run lines
+## Caveat: the original `cufile_delta.log` artifacts were not the right source on this host
 
-- Both committed `cufile_delta.log` files are empty.
-- Sources
-  - [`docs/data/lmcache_gds_mode_validation_20260429_123125/direct/cufile_delta.log`](/home/poc/gds_bench/docs/data/lmcache_gds_mode_validation_20260429_123125/direct/cufile_delta.log)
-  - [`docs/data/lmcache_gds_mode_validation_20260429_123125/forced_fallback/cufile_delta.log`](/home/poc/gds_bench/docs/data/lmcache_gds_mode_validation_20260429_123125/forced_fallback/cufile_delta.log)
-
-- Interpretation
-  - For this run, the global cuFile log did not provide new per-process evidence.
-  - That means the path distinction in this report relies on:
-    - LMCache branch-selection logs (`Using cufile` vs `Not using cufile`)
-    - successful store/hit behavior
-    - SSD file creation
-  - This is still sufficient to validate that forced fallback remained functional.
+- The host's authoritative cuFile logs are under `/home/poc/cufile_log`, as configured by `/etc/cufile.json`.
+- The original committed `cufile_delta.log` files from the first report run stayed empty because they were taken from the wrong global path.
+- That issue does not change the direct/fallback functional conclusion.
+- It does mean that the strongest nvfs proof comes from the supplemental per-process log summary above.
 
 ## Final Conclusion
 
@@ -151,6 +181,8 @@
     - `Stored 768`
     - `LMCache hit tokens: 768`
     - cache files on SSD
+    - cross-restart `Retrieved 768 out of 768 required tokens`
+    - per-process cuFile log lines showing `cuFileWrite` and `cuFileRead` under `nvidia_fs`
 - The current LMCache `GdsBackend` forced fallback mode is also functional on this host.
   - Supported by:
     - `Not using cufile`

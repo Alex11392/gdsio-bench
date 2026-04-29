@@ -10,12 +10,14 @@ VENV_DIR="${VENV_DIR:-/home/poc/vllm_lmcache_gds/.venv}"
 MODEL_NAME="${MODEL_NAME:-facebook/opt-125m}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.7}"
 GPU_DEVICE="${GPU_DEVICE:-1}"
+PYTHONHASHSEED="${PYTHONHASHSEED:-0}"
 DIRECT_PORT="${DIRECT_PORT:-8010}"
 FALLBACK_PORT="${FALLBACK_PORT:-8011}"
 RUN_ID="${RUN_ID:-lmcache_gds_mode_validation_$(date +%Y%m%d_%H%M%S)}"
 RAW_RUN_DIR="${RESULTS_DIR}/${RUN_ID}"
 COMMITTED_DATA_DIR="${DOCS_DATA_DIR}/${RUN_ID}"
 CUFILE_LOG="${CUFILE_LOG:-/usr/local/cuda/gds/tools/cufile.log}"
+CUFILE_LOG_DIR="${CUFILE_LOG_DIR:-/home/poc/cufile_log}"
 
 mkdir -p "${RAW_RUN_DIR}" "${COMMITTED_DATA_DIR}"
 
@@ -116,6 +118,8 @@ run_mode() {
   local metrics_txt="${mode_dir}/metrics_snippet.txt"
   local env_txt="${mode_dir}/env.txt"
   local cufile_delta="${mode_dir}/cufile_delta.log"
+  local cufile_key_lines="${mode_dir}/cufile_key_lines.txt"
+  local cufile_log_path_txt="${mode_dir}/cufile_log_path.txt"
   local summary_csv="${RAW_RUN_DIR}/summary.csv"
   local server_pid=""
 
@@ -138,6 +142,7 @@ EOF
     echo "model_name=${MODEL_NAME}"
     echo "gpu_memory_utilization=${GPU_MEMORY_UTILIZATION}"
     echo "gpu_device=${GPU_DEVICE}"
+    echo "pythonhashseed=${PYTHONHASHSEED}"
     echo "use_cufile=${use_cufile}"
   } > "${env_txt}"
 
@@ -149,6 +154,7 @@ EOF
   (
     source "${VENV_DIR}/bin/activate"
     export CUDA_VISIBLE_DEVICES="${GPU_DEVICE}"
+    export PYTHONHASHSEED="${PYTHONHASHSEED}"
     export LMCACHE_USE_EXPERIMENTAL=True
     export LMCACHE_CONFIG_FILE="${config_path}"
     exec vllm serve "${MODEL_NAME}" \
@@ -191,6 +197,20 @@ EOF
 
   copy_cufile_delta "${cufile_before}" "${cufile_delta}"
 
+  local engine_pid cufile_proc_log=""
+  engine_pid="$(grep -oP 'EngineCore pid=\K[0-9]+' "${server_log}" | tail -n1 || true)"
+  if [[ -n "${engine_pid}" ]] && [[ -d "${CUFILE_LOG_DIR}" ]]; then
+    cufile_proc_log="$(find "${CUFILE_LOG_DIR}" -maxdepth 1 -type f -name "cufile_${engine_pid}_*.log" | sort | tail -n1 || true)"
+  fi
+  printf '%s\n' "${cufile_proc_log}" > "${cufile_log_path_txt}"
+  if [[ -n "${cufile_proc_log}" ]]; then
+    grep -E 'nvidia_fs driver open invoked|NVMe[[:space:]]+: nvfs, compat|cuFileBufRegister done|cuFileHandleRegister success|cuFile(Read|Write) invoked|cuFile(Read|Write) done' \
+      "${cufile_proc_log}" \
+      > "${cufile_key_lines}" || true
+  else
+    : > "${cufile_key_lines}"
+  fi
+
   find "${cache_dir}" -maxdepth 3 -type f | sort > "${mode_dir}/cache_files.txt"
   cp "${config_path}" "${committed_mode_dir}/lmcache_config.yaml"
   cp "${env_txt}" "${committed_mode_dir}/env.txt"
@@ -198,6 +218,8 @@ EOF
   cp "${mode_dir}/cache_files.txt" "${committed_mode_dir}/cache_files.txt"
   cp "${request_1_json}" "${committed_mode_dir}/request_1.json"
   cp "${request_2_json}" "${committed_mode_dir}/request_2.json"
+  cp "${cufile_log_path_txt}" "${committed_mode_dir}/cufile_log_path.txt"
+  cp "${cufile_key_lines}" "${committed_mode_dir}/cufile_key_lines.txt"
 
   grep -E 'Using cufile|Not using cufile|Stored |LMCache hit tokens|GDS backend using|No base pointer found|Error saving|LMCache is unhealthy' \
     "${server_log}" \

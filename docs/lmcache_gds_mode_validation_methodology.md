@@ -28,6 +28,8 @@
   - `facebook/opt-125m`
 - Python environment
   - `/home/poc/vllm_lmcache_gds/.venv`
+- Hash stability across processes
+  - `PYTHONHASHSEED=0`
 - Request body
   - [`docs/data/lmcache_long_prompt_request.json`](/home/poc/gds_bench/docs/data/lmcache_long_prompt_request.json)
 - `vLLM` startup option
@@ -38,6 +40,10 @@
   - `cufile_buffer_size: 1024`
 - Filesystem
   - target cache path must be on the NVMe-backed `xfs` mount
+- cuFile log location
+  - this host uses `/etc/cufile.json`
+  - the actual per-process cuFile logs are written under `/home/poc/cufile_log`
+  - `/usr/local/cuda/gds/tools/cufile.log` is not the authoritative per-process source on this machine
 
 ## Per-mode expectations
 
@@ -73,6 +79,34 @@
   - per-mode cache files exist on SSD
   - per-mode logs and summary are captured under `results/<run_id>/`
   - curated evidence is copied into `docs/data/<run_id>/`
+
+## Additional proof for direct nvfs I/O
+
+- Same-process request 2 hits are enough to prove LMCache reuse, but not enough to prove SSD reload.
+- To prove `cuFile` read/write against `nvfs`, run one extra direct-only cross-restart check:
+  - service A starts with `use_cufile=true`
+  - request 1 stores cache to SSD
+  - service A exits
+  - service B starts with the same config, same `PYTHONHASHSEED=0`, and the same SSD cache path
+  - request 2 must show:
+    - `LMCache hit tokens > 0`
+    - `need to load > 0`
+    - `Retrieved ...`
+- Then inspect service B's per-process cuFile log under `/home/poc/cufile_log/cufile_<EngineCore pid>_*.log`
+  - required evidence:
+    - `nvidia_fs driver open invoked`
+    - `NVMe : nvfs, compat`
+    - `cuFileRead invoked`
+    - `cuFileRead done`
+
+## Why `PYTHONHASHSEED=0` is mandatory for cross-restart checks
+
+- LMCache `0.4.2` warns when builtin hashing is used without `PYTHONHASHSEED`.
+- Without a fixed hash seed, two different `vLLM` processes can generate different cache keys for the same prompt.
+- In that case, cross-restart validation can fail even when SSD cache files exist and the GDS path itself is healthy.
+- Therefore:
+  - same-process direct/fallback checks can work without this
+  - cross-process SSD reload checks should always fix `PYTHONHASHSEED=0`
 
 ## Runner
 
