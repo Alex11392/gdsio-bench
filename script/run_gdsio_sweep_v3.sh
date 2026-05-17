@@ -143,7 +143,7 @@ precondition_dataset() {
       # Unmount → mkfs.ext4 → remount → FIO fill entire device (2 rounds seq+rand).
       # This matches the paper: "filled completely" with a fresh filesystem each time.
       local device_b fill_b
-      device_b=$(blockdev --getsize64 "$DEVICE")
+      device_b=$(sudo blockdev --getsize64 "$DEVICE")
       # Reserve ~2G for EXT4 metadata (journal, block group descriptors, inodes).
       fill_b=$(( device_b - 2 * 1073741824 ))
       echo "[$(date +%H:%M:%S)] PRECONDITION=full: device=$(numfmt --to=iec $device_b), fill=$(numfmt --to=iec $fill_b)"
