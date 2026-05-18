@@ -47,7 +47,7 @@ PRECONDITION=full  (default)
   5. run one preconditioning round by default:
      round N-a. FIO sequential write (bs=128K) — fills usable filesystem space to steady state
      round N-b. FIO random write    (bs=4K)   — stresses random-write FTL paths
-  6. fallocate + dd to create the 1024G testfile with contiguous EXT4 extents
+  6. fallocate + dd to create the 10G testfile with contiguous EXT4 extents
 ```
 
 The paper uses two preconditioning rounds. This script defaults to one round to reduce runtime and SSD write amplification while still avoiding a fresh-filesystem state. Set `PRECOND_ROUNDS=2` when a closer paper-style run is required.
@@ -121,7 +121,7 @@ All parameters are environment variables with defaults in the script.
 | `DEVICE` | `/dev/nvme0n1` | Target NVMe device |
 | `MOUNT_POINT` | `/mnt/nvme0` | Filesystem mount point |
 | `GPU` | `0` | GPU index |
-| `DATASET_SIZE` | `1024G` | Test file size. Use `G` units because this gdsio build rejects `-s 1T`. |
+| `DATASET_SIZE` | `10G` | Test file size. Use `G` units because this gdsio build rejects `-s 1T`. |
 | `DURATION` | `120` | gdsio run time per case (seconds) |
 | `WARMUP` | `2` | Seconds before gdsio starts |
 | `COOLDOWN` | `3` | Seconds after gdsio exits |
