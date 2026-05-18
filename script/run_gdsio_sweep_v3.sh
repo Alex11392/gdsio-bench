@@ -80,6 +80,13 @@ size_to_bytes() {
   numfmt --from=iec "$1"
 }
 
+# gdsio -s only accepts K|M|G; convert any IEC size to the largest G multiple.
+to_gdsio_size() {
+  local bytes
+  bytes=$(numfmt --from=iec "$1")
+  echo "$((bytes / 1073741824))G"
+}
+
 require_existing_dataset() {
   local required existing
   required=$(size_to_bytes "$DATASET_SIZE")
@@ -302,7 +309,7 @@ EOF
 
   set +e
   "$GDSIO" -f "$TESTFILE" -d "$GPU" -w "$threads" \
-    -s "$DATASET_SIZE" -i "${io_size}K" -x "$mode" -I "$pattern" -T "$DURATION" \
+    -s "$(to_gdsio_size "$DATASET_SIZE")" -i "${io_size}K" -x "$mode" -I "$pattern" -T "$DURATION" \
     > "${case_dir}/gdsio.log" 2>&1 &
   local gdsio_pid=$!
   (
