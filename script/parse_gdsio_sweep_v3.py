@@ -188,6 +188,13 @@ def parse_perf(case_dir: Path, total_window: int):
 
 
 def parse_iostat(case_dir: Path, device: str, warmup: int, duration: int):
+    def throughput_mibs(row, mb_key, kb_key):
+        if mb_key in row:
+            return float(row[mb_key])
+        if kb_key in row:
+            return float(row[kb_key]) / 1024.0
+        return 0.0
+
     samples = []
     header = []
     dev_base = Path(device).name
@@ -204,8 +211,8 @@ def parse_iostat(case_dir: Path, device: str, warmup: int, duration: int):
         try:
             samples.append(
                 {
-                    "ssd_r_mbs": float(row.get("rMB/s", row.get("rkB/s", 0.0))),
-                    "ssd_w_mbs": float(row.get("wMB/s", row.get("wkB/s", 0.0))),
+                    "ssd_r_mbs": throughput_mibs(row, "rMB/s", "rkB/s"),
+                    "ssd_w_mbs": throughput_mibs(row, "wMB/s", "wkB/s"),
                     "ssd_r_await_ms": float(row.get("r_await", 0.0)),
                     "ssd_w_await_ms": float(row.get("w_await", 0.0)),
                     "ssd_aqu_sz": float(row.get("aqu-sz", row.get("avgqu-sz", 0.0))),

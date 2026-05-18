@@ -21,7 +21,8 @@ LOCK_MEMORY_CLOCK=${LOCK_MEMORY_CLOCK:-1}
 MEMORY_CLOCK=${MEMORY_CLOCK:-10001}
 PRECONDITION=${PRECONDITION:-full} # none|quick|full; inspired by paper FIO SSD preconditioning
 PRECOND_SIZE=${PRECOND_SIZE:-256G}
-PRECOND_ROUNDS=${PRECOND_ROUNDS:-2}
+PRECOND_ROUNDS=${PRECOND_ROUNDS:-1}
+PRECOND_FREE_RESERVE=${PRECOND_FREE_RESERVE:-8G}
 MOUNT_POINT=${MOUNT_POINT:-/mnt/nvme0}
 ENABLE_PERF=${ENABLE_PERF:-1}
 ENABLE_PIDSTAT=${ENABLE_PIDSTAT:-1}
@@ -63,6 +64,7 @@ MEMORY_CLOCK=$MEMORY_CLOCK
 PRECONDITION=$PRECONDITION
 PRECOND_SIZE=$PRECOND_SIZE
 PRECOND_ROUNDS=$PRECOND_ROUNDS
+PRECOND_FREE_RESERVE=$PRECOND_FREE_RESERVE
 MOUNT_POINT=$MOUNT_POINT
 ENABLE_PERF=$ENABLE_PERF
 ENABLE_PIDSTAT=$ENABLE_PIDSTAT
@@ -126,6 +128,18 @@ run_fio_precondition() {
   sync
 }
 
+compute_full_precond_size() {
+  local avail_b reserve_b fill_b
+  avail_b=$(df -B1 --output=avail "$MOUNT_POINT" | tail -n 1 | tr -d ' ')
+  reserve_b=$(size_to_bytes "$PRECOND_FREE_RESERVE")
+  if [[ -z "$avail_b" || "$avail_b" -le "$reserve_b" ]]; then
+    echo "ERROR: not enough free space on $MOUNT_POINT for full preconditioning: avail=${avail_b:-unknown}, reserve=${reserve_b}" >&2
+    exit 1
+  fi
+  fill_b=$(( avail_b - reserve_b ))
+  echo "$fill_b"
+}
+
 precondition_dataset() {
   case "$PRECONDITION" in
     none)
@@ -140,13 +154,11 @@ precondition_dataset() {
       require_existing_dataset
       ;;
     full)
-      # Unmount → mkfs.ext4 → remount → FIO fill entire device (2 rounds seq+rand).
-      # This matches the paper: "filled completely" with a fresh filesystem each time.
+      # Unmount → mkfs.ext4 → remount → FIO fill the usable filesystem area.
+      # Use df after mkfs instead of blockdev size because EXT4 metadata is not writable file space.
       local device_b fill_b
       device_b=$(sudo blockdev --getsize64 "$DEVICE")
-      # Reserve ~2G for EXT4 metadata (journal, block group descriptors, inodes).
-      fill_b=$(( device_b - 2 * 1073741824 ))
-      echo "[$(date +%H:%M:%S)] PRECONDITION=full: device=$(numfmt --to=iec $device_b), fill=$(numfmt --to=iec $fill_b)"
+      echo "[$(date +%H:%M:%S)] PRECONDITION=full: device=$(numfmt --to=iec $device_b)"
 
       echo "[$(date +%H:%M:%S)] umount $DEVICE"
       sudo umount "$DEVICE" > "${RUNDIR}/precond_umount.log" 2>&1
@@ -158,6 +170,8 @@ precondition_dataset() {
       sudo mount "$DEVICE" "$MOUNT_POINT" > "${RUNDIR}/precond_mount.log" 2>&1
       sudo chown -R "$(id -u):$(id -g)" "$MOUNT_POINT"
       mkdir -p "$(dirname "$TESTFILE")"
+      fill_b=$(compute_full_precond_size)
+      echo "[$(date +%H:%M:%S)] full precondition fill size=$(numfmt --to=iec "$fill_b"), reserve=${PRECOND_FREE_RESERVE}"
 
       local round
       for round in $(seq 1 "$PRECOND_ROUNDS"); do

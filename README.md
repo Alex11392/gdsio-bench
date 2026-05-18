@@ -43,10 +43,14 @@ PRECONDITION=full  (default)
   1. umount device
   2. mkfs.ext4 (fresh filesystem, clears FTL mapping)
   3. mount device
-  4. FIO sequential write (bs=128K) × 2 rounds  — fills device to steady state
-  5. FIO random write    (bs=4K)   × 2 rounds  — stresses random-write FTL paths
+  4. compute fill size from EXT4 free space, leaving PRECOND_FREE_RESERVE
+  5. run one preconditioning round by default:
+     round N-a. FIO sequential write (bs=128K) — fills usable filesystem space to steady state
+     round N-b. FIO random write    (bs=4K)   — stresses random-write FTL paths
   6. fallocate + dd to create the 1T testfile with contiguous EXT4 extents
 ```
+
+The paper uses two preconditioning rounds. This script defaults to one round to reduce runtime and SSD write amplification while still avoiding a fresh-filesystem state. Set `PRECOND_ROUNDS=2` when a closer paper-style run is required.
 
 The `fallocate + dd` step is critical: FIO random-write preconditioning fragments the EXT4 free-block bitmap. If the testfile is created with `fio bs=128K` after preconditioning, physical extents become scattered and 4K read latency degrades 3×. `fallocate` reserves one contiguous region before the filesystem is fragmented.
 
@@ -129,7 +133,8 @@ All parameters are environment variables with defaults in the script.
 | `IO_SWEEP_THREADS` | `16` | Fixed thread count during IO size sweep |
 | `THREAD_SWEEP_SIZE_KIB` | `4` | Fixed IO size (KiB) during thread sweep |
 | `PRECONDITION` | `full` | `none` / `quick` / `full` |
-| `PRECOND_ROUNDS` | `2` | FIO preconditioning rounds |
+| `PRECOND_ROUNDS` | `1` | FIO preconditioning rounds |
+| `PRECOND_FREE_RESERVE` | `8G` | Free filesystem space left unused during full preconditioning |
 | `LOCK_MEMORY_CLOCK` | `1` | Lock GPU memory clock |
 | `ENABLE_PERF` | `1` | Collect DRAM counters via `perf stat` |
 | `ENABLE_PERF_RECORD` | `1` | Collect call graph via `perf record -g` |
