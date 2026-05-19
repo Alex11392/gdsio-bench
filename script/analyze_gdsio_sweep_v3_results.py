@@ -124,8 +124,8 @@ def plot_metric(
         if x_axis == "io_size":
             members = [row for row in members if row["threads"] == 16]
             members.sort(key=lambda row: int(row["io_size_kib"]))
-            xs = [int(row["io_size_kib"]) for row in members]
-            labels = [size_label(x) for x in xs]
+            xs = list(range(len(members)))
+            labels = [size_label(int(row["io_size_kib"])) for row in members]
         else:
             members = [row for row in members if row["io_size_kib"] == 4]
             members.sort(key=lambda row: int(row["threads"]))
@@ -283,26 +283,6 @@ def main() -> None:
             title=f"{PATTERN_LABEL[pattern]} Read: gdsio CPU vs IO Size",
             ylabel="gdsio CPU (%)",
             fixed_note="fixed: threads=16, dataset=10G, duration=120s, repeats=3",
-        )
-        plot_metric(
-            summary,
-            fig_dir / f"thread_sweep_{pattern}_throughput.png",
-            pattern=pattern,
-            x_axis="threads",
-            metric="throughput_gibs",
-            title=f"{PATTERN_LABEL[pattern]} 4K Read: Throughput vs Threads",
-            ylabel="Throughput (GiB/s)",
-            fixed_note="fixed: io_size=4K, dataset=10G, duration=120s, repeats=3",
-        )
-        plot_metric(
-            summary,
-            fig_dir / f"thread_sweep_{pattern}_gdsio_cpu.png",
-            pattern=pattern,
-            x_axis="threads",
-            metric="gdsio_cpu_pct",
-            title=f"{PATTERN_LABEL[pattern]} 4K Read: gdsio CPU vs Threads",
-            ylabel="gdsio CPU (%)",
-            fixed_note="fixed: io_size=4K, dataset=10G, duration=120s, repeats=3",
         )
 
     write_markdown(run_dir, summary, rows, md_path)
